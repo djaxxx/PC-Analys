@@ -1,0 +1,15 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.CpuCooler = exports.Motherboard = exports.Storage = exports.Ram = exports.Gpu = exports.Cpu = void 0;
+var Cpu_1 = require("./Cpu");
+Object.defineProperty(exports, "Cpu", { enumerable: true, get: function () { return Cpu_1.Cpu; } });
+var Gpu_1 = require("./Gpu");
+Object.defineProperty(exports, "Gpu", { enumerable: true, get: function () { return Gpu_1.Gpu; } });
+var Ram_1 = require("./Ram");
+Object.defineProperty(exports, "Ram", { enumerable: true, get: function () { return Ram_1.Ram; } });
+var Storage_1 = require("./Storage");
+Object.defineProperty(exports, "Storage", { enumerable: true, get: function () { return Storage_1.Storage; } });
+var Motherboard_1 = require("./Motherboard");
+Object.defineProperty(exports, "Motherboard", { enumerable: true, get: function () { return Motherboard_1.Motherboard; } });
+var CpuCooler_1 = require("./CpuCooler");
+Object.defineProperty(exports, "CpuCooler", { enumerable: true, get: function () { return CpuCooler_1.CpuCooler; } });
