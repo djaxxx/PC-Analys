@@ -1,0 +1,7 @@
+# Ne pas suivre les dossiers node_modules
+node_modules/
+
+# Ne pas suivre les fichiers d'environnement
+.env
+.env.local
+.env.*.local
