@@ -68,7 +68,7 @@ function SuggestionCard({ s }: { s: any }) {
       ) : s.image && !imgError ? (
         <img
           src={s.image}
-          alt={s.titre}
+          alt={s.titre || s.nom || 'Composant'}
           className="w-32 h-32 object-contain rounded bg-white/10 flex-shrink-0 mb-2 md:mb-0"
           onError={() => setImgError(true)}
         />
@@ -132,8 +132,7 @@ export default function Diagnostic() {
   const [showAgentOption, setShowAgentOption] = useState(false);
 
   // ===== URL API CORRIGÉE =====
-  // Utilise la variable d'environnement correcte
-  const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || '';
+  const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'https://pc-analys-production.up.railway.app';
 
   console.log('🔧 API_BASE_URL utilisée:', API_BASE_URL);
 
@@ -269,10 +268,12 @@ export default function Diagnostic() {
             })
           ]);
           
+          let recoText = '';
           if (resReco.ok) {
             const recoData = await resReco.json();
-            setReco(recoData.recommandation || '');
-            animateReco(recoData.recommandation || '');
+            recoText = recoData.recommandation || '';
+            setReco(recoText);
+            animateReco(recoText);
           }
           
           if (resSuggestions.ok) {
@@ -288,7 +289,7 @@ export default function Diagnostic() {
             id: Date.now(),
             date: new Date().toISOString(),
             config: sessionData.data,
-            recommandation: reco,
+            recommandation: recoText,
             suggestions: suggestions
           };
           
@@ -516,7 +517,9 @@ export default function Diagnostic() {
                     <div><span className="font-semibold text-purple-300">Totale :</span> <span className="text-white">{config.ram?.totale}</span></div>
                     <div><span className="font-semibold text-purple-300">Utilisée :</span> <span className="text-white">{config.ram?.utilisée}</span></div>
                     <div><span className="font-semibold text-purple-300">Type :</span> <span className="text-white">{config.ram?.type}</span></div>
-                    <div><span className="font-semibold text-purple-300">Slots :</span> <span className="text-white">{config.ram?.slots_libres} libres / {config.ram?.slots_total} total</span></div>
+                    {config.ram?.slots_total && (
+                      <div><span className="font-semibold text-purple-300">Slots :</span> <span className="text-white">{config.ram?.slots_libres || 0} libres / {config.ram?.slots_total} total</span></div>
+                    )}
                   </div>
                   {/* GPU */}
                   <div className="bg-white/5 backdrop-blur-sm rounded-xl p-5 flex flex-col gap-2 border border-white/10">
@@ -524,13 +527,15 @@ export default function Diagnostic() {
                       <span className="text-green-400 text-2xl">{ICONS.Gpu}</span>
                       <span className="font-bold text-white text-lg">GPU</span>
                     </div>
-                    {config.gpu?.map((gpu: any, index: number) => (
+                    {config.gpu && config.gpu.length > 0 ? config.gpu.map((gpu: any, index: number) => (
                       <div key={index} className="mb-2">
                         <div><span className="font-semibold text-green-300">Marque :</span> <span className="text-white">{gpu.marque}</span></div>
                         <div><span className="font-semibold text-green-300">Modèle :</span> <span className="text-white">{gpu.modèle}</span></div>
                         <div><span className="font-semibold text-green-300">VRAM :</span> <span className="text-white">{gpu.vram}</span></div>
                       </div>
-                    ))}
+                    )) : (
+                      <div className="text-white">Aucun GPU détecté</div>
+                    )}
                   </div>
                   {/* Stockage */}
                   <div className="bg-white/5 backdrop-blur-sm rounded-xl p-5 flex flex-col gap-2 border border-white/10">
@@ -538,13 +543,15 @@ export default function Diagnostic() {
                       <span className="text-orange-400 text-2xl">{ICONS.HardDrive}</span>
                       <span className="font-bold text-white text-lg">Stockage</span>
                     </div>
-                    {config.stockage?.map((storage: any, index: number) => (
+                    {config.stockage && config.stockage.length > 0 ? config.stockage.map((storage: any, index: number) => (
                       <div key={index} className="mb-2">
                         <div><span className="font-semibold text-orange-300">Type :</span> <span className="text-white">{storage.type}</span></div>
                         <div><span className="font-semibold text-orange-300">Taille :</span> <span className="text-white">{storage.taille}</span></div>
                         <div><span className="font-semibold text-orange-300">Interface :</span> <span className="text-white">{storage.interface}</span></div>
                       </div>
-                    ))}
+                    )) : (
+                      <div className="text-white">Aucun stockage détecté</div>
+                    )}
                   </div>
                 </div>
               ) : null}
@@ -559,4 +566,129 @@ export default function Diagnostic() {
                     <div className="flex items-center gap-3 text-white">
                       <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-cyan-400"></div>
                       <span className="text-lg">Analyse IA en cours...</span>
-                    </div
+                    </div>
+                    <div className="text-gray-300 text-center">
+                      Génération de recommandations personnalisées basées sur votre configuration...
+                    </div>
+                  </div>
+                ) : recoDisplay ? (
+                  <div className="prose prose-invert max-w-none">
+                    <ReactMarkdown 
+                      remarkPlugins={[remarkGfm]}
+                      components={{
+                        h1: ({ children }) => <h1 className="text-2xl font-bold text-white mb-4">{children}</h1>,
+                        h2: ({ children }) => <h2 className="text-xl font-bold text-cyan-400 mb-3 mt-6">{children}</h2>,
+                        h3: ({ children }) => <h3 className="text-lg font-semibold text-purple-400 mb-2 mt-4">{children}</h3>,
+                        p: ({ children }) => <p className="text-gray-300 mb-3 leading-relaxed">{children}</p>,
+                        ul: ({ children }) => <ul className="list-disc list-inside text-gray-300 mb-4 space-y-1">{children}</ul>,
+                        ol: ({ children }) => <ol className="list-decimal list-inside text-gray-300 mb-4 space-y-1">{children}</ol>,
+                        li: ({ children }) => <li className="text-gray-300">{children}</li>,
+                        table: ({ children }) => <div className="overflow-x-auto mb-4"><table className="min-w-full border-collapse border border-gray-600">{children}</table></div>,
+                        thead: ({ children }) => <thead className="bg-gray-700">{children}</thead>,
+                        tbody: ({ children }) => <tbody>{children}</tbody>,
+                        tr: ({ children }) => <tr className="border-b border-gray-600">{children}</tr>,
+                        th: ({ children }) => <th className="border border-gray-600 px-4 py-2 text-left text-cyan-400 font-semibold">{children}</th>,
+                        td: ({ children }) => <td className="border border-gray-600 px-4 py-2 text-gray-300">{children}</td>,
+                        strong: ({ children }) => <strong className="text-white font-semibold">{children}</strong>,
+                        em: ({ children }) => <em className="text-cyan-300 italic">{children}</em>,
+                        code: ({ children }) => <code className="bg-gray-800 px-2 py-1 rounded text-cyan-400">{children}</code>,
+                        blockquote: ({ children }) => <blockquote className="border-l-4 border-cyan-400 pl-4 italic text-gray-300 mb-4">{children}</blockquote>
+                      }}
+                    >
+                      {structureRecommandation(recoDisplay)}
+                    </ReactMarkdown>
+                    {!recoTerminee && (
+                      <span className="inline-block w-2 h-5 bg-cyan-400 animate-pulse ml-1"></span>
+                    )}
+                  </div>
+                ) : config && !loadingReco ? (
+                  <div className="text-center text-gray-300">
+                    <div className="mb-4">
+                      <Sparkles className="w-12 h-12 text-cyan-400 mx-auto mb-2" />
+                      <p>Prêt à générer vos recommandations personnalisées</p>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+
+            {/* Suggestions d'amélioration */}
+            {(suggestions.length > 0 || message) && (
+              <div className="slide-up">
+                <h2 className="text-2xl font-bold mb-6 text-white text-center">Suggestions d'Amélioration</h2>
+                
+                {message && (
+                  <div className="bg-green-500/10 border border-green-500/20 rounded-lg p-4 mb-6">
+                    <div className="flex items-center gap-2 text-green-400">
+                      <CheckCircle className="w-5 h-5" />
+                      <span className="font-semibold">Excellente configuration !</span>
+                    </div>
+                    <div className="text-green-300 mt-2">{message}</div>
+                  </div>
+                )}
+                
+                {suggestions.length > 0 && (
+                  <div className="space-y-4">
+                    {suggestions.map((suggestion, index) => (
+                      <SuggestionCard key={suggestion.id || index} s={suggestion} />
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Section historique et options */}
+            {config && (
+              <div className="slide-up">
+                <div className="bg-white/5 backdrop-blur-sm rounded-xl p-6 border border-white/10">
+                  <h3 className="text-xl font-bold text-white mb-4 text-center">Options</h3>
+                  <div className="flex flex-col md:flex-row gap-4 justify-center items-center">
+                    <button
+                      onClick={() => {
+                        const dataStr = JSON.stringify({
+                          config,
+                          recommandation: reco,
+                          suggestions,
+                          sessionId,
+                          date: new Date().toISOString()
+                        }, null, 2);
+                        const dataBlob = new Blob([dataStr], { type: 'application/json' });
+                        const url = URL.createObjectURL(dataBlob);
+                        const link = document.createElement('a');
+                        link.href = url;
+                        link.download = `pcanalys-diagnostic-${new Date().toLocaleDateString('fr-FR').replace(/\//g, '-')}.json`;
+                        link.click();
+                        URL.revokeObjectURL(url);
+                      }}
+                      className="btn-modern text-sm px-6 py-2"
+                    >
+                      📥 Exporter l'analyse
+                    </button>
+                    
+                    <button
+                      onClick={() => {
+                        setAnalyseLancee(false);
+                        setConfig(null);
+                        setReco('');
+                        setRecoDisplay('');
+                        setRecoTerminee(false);
+                        setSuggestions([]);
+                        setMessage(null);
+                        setSessionId(null);
+                        setShowAgentOption(false);
+                        setError('');
+                      }}
+                      className="btn-modern text-sm px-6 py-2 bg-gray-600/20 hover:bg-gray-600/30 border border-gray-500/30"
+                    >
+                      🔄 Nouvelle analyse
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
