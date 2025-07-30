@@ -32,12 +32,10 @@ function SuggestionCard({ s }: { s: any }) {
   const [imgError, setImgError] = useState(false);
   const [imgLoading, setImgLoading] = useState(true);
   
-  // Fonction pour vérifier si l'image est valide
   const checkImageValidity = (imgSrc: string) => {
     const img = new Image();
     img.onload = () => {
       setImgLoading(false);
-      // Vérifier si l'image est trop petite ou probablement vide
       if (img.width < 50 || img.height < 50) {
         setImgError(true);
       }
@@ -49,7 +47,6 @@ function SuggestionCard({ s }: { s: any }) {
     img.src = imgSrc;
   };
 
-  // Vérifier l'image au montage du composant
   useEffect(() => {
     if (s.image) {
       checkImageValidity(s.image);
@@ -58,7 +55,6 @@ function SuggestionCard({ s }: { s: any }) {
     }
   }, [s.image]);
 
-  // Utilise l'icône Lucide envoyée par le backend si présente, sinon fallback sur la catégorie
   const iconKey: IconKey | undefined = s.icon && (s.icon in ICONS) ? s.icon as IconKey : (s.categorie && s.categorie in ICONS ? s.categorie as IconKey : undefined);
   const icon = iconKey ? ICONS[iconKey] : <HardDrive className="w-6 h-6 text-cyan-400" />;
   
@@ -66,7 +62,6 @@ function SuggestionCard({ s }: { s: any }) {
     <div className="bg-white/5 backdrop-blur-sm rounded-xl flex flex-col md:flex-row items-center gap-4 hover:scale-105 transition-transform p-4 border border-white/10 w-full fade-in">
       <div className="icon-no-bg mr-0 md:mr-2 mb-2 md:mb-0">{icon}</div>
       {s.image && !imgError && imgLoading ? (
-        // Loading state
         <div className="w-32 h-32 flex items-center justify-center bg-white/10 rounded flex-shrink-0 mb-2 md:mb-0">
           <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-cyan-400"></div>
         </div>
@@ -130,17 +125,26 @@ export default function Diagnostic() {
   const [message, setMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [loadingReco, setLoadingReco] = useState(false);
+  const [error, setError] = useState<string>('');
+  const [analyseLancee, setAnalyseLancee] = useState(false);
+  const [toast, setToast] = useState<string | null>(null);
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [showAgentOption, setShowAgentOption] = useState(false);
 
-  // Fonction pour générer un identifiant unique de machine basé sur la configuration
+  // ===== URL API CORRIGÉE =====
+  // Utilise la variable d'environnement correcte
+  const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || '';
+
+  console.log('🔧 API_BASE_URL utilisée:', API_BASE_URL);
+
+  // Fonction pour générer un identifiant unique de machine
   const generateMachineId = (config: any) => {
-    // Log la structure de config utilisée pour générer l'ID machine
     console.log('Frontend config pour machineId:', config);
     const cpu = config?.cpu?.modèle || 'unknown';
     const ram = config?.ram?.totale || 'unknown';
     const gpu = config?.gpu?.[0]?.modèle || 'unknown';
     const storage = config?.stockage?.[0]?.type || 'unknown';
     const machineSignature = `${cpu}_${ram}_${gpu}_${storage}`;
-    // Encodage base64 UTF-8 identique à Buffer.from(..., 'utf8').toString('base64')
     const utf8 = new TextEncoder().encode(machineSignature);
     let binary = '';
     utf8.forEach(b => binary += String.fromCharCode(b));
@@ -149,11 +153,8 @@ export default function Diagnostic() {
     console.log('Frontend machineId:', id);
     return id;
   };
-  const [error, setError] = useState<string>('');
-  const [analyseLancee, setAnalyseLancee] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
 
-  // Post-traitement pour forcer une structure claire (titres, résumé, tableau)
+  // Post-traitement pour forcer une structure claire
   function structureRecommandation(raw: string): string {
     let txt = raw.trim();
     if (!/^## Résumé/m.test(txt)) {
@@ -174,85 +175,144 @@ export default function Diagnostic() {
     return txt;
   }
 
-  // Animation de machine à écrire pour l'affichage du texte
-
+  // Test de connectivité API
+  const testAPIConnection = async () => {
+    try {
+      console.log('🧪 Test de connexion API...');
+      const response = await fetch(`${API_BASE_URL}/api/test-cors`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      console.log('🧪 Status:', response.status);
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log('✅ Test API réussi:', data);
+        return true;
+      } else {
+        console.error('❌ Test API échoué:', response.status);
+        return false;
+      }
+    } catch (error) {
+      console.error('❌ Erreur test API:', error);
+      return false;
+    }
+  };
 
   const checkAgentSession = async () => {
     try {
       setLoading(true);
       setError('');
-      // Désactive l'appel à /api/scan : on ne récupère que la session agent
-      const sessionResponse = await fetch(`${API_BASE_URL}/api/client-sessions/recent`);
+      
+      // Test de connectivité d'abord
+      const isConnected = await testAPIConnection();
+      if (!isConnected) {
+        throw new Error('Impossible de se connecter au serveur. Vérifiez la configuration.');
+      }
+
+      console.log('🔍 Recherche de session agent...');
+      const sessionResponse = await fetch(`${API_BASE_URL}/api/client-sessions/recent`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+
       let sessionData = null;
+      
       if (sessionResponse.ok) {
         const data = await sessionResponse.json();
+        console.log('📡 Réponse session:', data);
+        
         if (data.sessionId) {
-          const sessionResponse2 = await fetch(`${API_BASE_URL}/api/client-session/${data.sessionId}`);
-          if (sessionResponse2.ok) {
-            const tempSessionData = await sessionResponse2.json();
-            // On prend directement la session agent récupérée
+          const sessionDetailResponse = await fetch(`${API_BASE_URL}/api/client-session/${data.sessionId}`, {
+            method: 'GET',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+          });
+          
+          if (sessionDetailResponse.ok) {
+            const tempSessionData = await sessionDetailResponse.json();
             sessionData = tempSessionData;
+            console.log('📊 Données session récupérées:', sessionData);
           }
         }
       }
       
-      if (sessionData) {
-        setSessionId(sessionData.sessionId);
+      if (sessionData && sessionData.data) {
+        setSessionId(sessionData.sessionId || 'unknown');
         setShowAgentOption(false);
         setAnalyseLancee(true);
         setConfig(sessionData.data);
         
-        // Lancer l'analyse IA et les suggestions en parallèle
+        // Lancer l'analyse IA et les suggestions
         setLoadingReco(true);
-        const [resReco, resSuggestions] = await Promise.all([
-          fetch(`${API_BASE_URL}/api/recommandation`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(sessionData.data),
-          }),
-          fetch(`${API_BASE_URL}/api/suggestions`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              ...sessionData.data,
-              iaRecommendation: '' // On l'ajoutera après
+        
+        try {
+          const [resReco, resSuggestions] = await Promise.all([
+            fetch(`${API_BASE_URL}/api/recommandation`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(sessionData.data),
             }),
-          })
-        ]);
+            fetch(`${API_BASE_URL}/api/suggestions`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                ...sessionData.data,
+                iaRecommendation: ''
+              }),
+            })
+          ]);
+          
+          if (resReco.ok) {
+            const recoData = await resReco.json();
+            setReco(recoData.recommandation || '');
+            animateReco(recoData.recommandation || '');
+          }
+          
+          if (resSuggestions.ok) {
+            const suggestionsData = await resSuggestions.json();
+            setSuggestions(suggestionsData.suggestions || []);
+            setMessage(suggestionsData.message || null);
+          }
+          
+          setLoadingReco(false);
+          
+          // Sauvegarder dans localStorage
+          const analyseData = {
+            id: Date.now(),
+            date: new Date().toISOString(),
+            config: sessionData.data,
+            recommandation: reco,
+            suggestions: suggestions
+          };
+          
+          const historique = JSON.parse(localStorage.getItem('pcanalys_historique') || '[]');
+          historique.unshift(analyseData);
+          localStorage.setItem('pcanalys_historique', JSON.stringify(historique.slice(0, 10)));
+          
+          setToast('Analyse enregistrée dans l\'historique !');
+          setTimeout(() => setToast(null), 3000);
+          
+        } catch (analysisError) {
+          console.error('Erreur lors de l\'analyse:', analysisError);
+          setLoadingReco(false);
+        }
         
-        if (!resReco.ok) throw new Error('Erreur lors de l\'analyse de l\'IA');
-        const recoData = await resReco.json();
-        setReco(recoData.recommandation || '');
-        animateReco(recoData.recommandation || '');
-        
-        if (!resSuggestions.ok) throw new Error('Erreur lors de la récupération des suggestions');
-        const suggestionsData = await resSuggestions.json();
-        setSuggestions(suggestionsData.suggestions || []);
-        setMessage(suggestionsData.message || null);
-        
-        setTimeout(() => setLoadingReco(false), 1000); // Réduit de 2s à 1s
         setLoading(false);
-        
-        // Sauvegarder dans localStorage
-        const analyseData = {
-          id: Date.now(),
-          date: new Date().toISOString(),
-          config: sessionData.data,
-          recommandation: recoData.recommandation,
-          suggestions: suggestionsData
-        };
-        const historique = JSON.parse(localStorage.getItem('pcanalys_historique') || '[]');
-        historique.unshift(analyseData);
-        localStorage.setItem('pcanalys_historique', JSON.stringify(historique.slice(0, 10)));
-        setToast('Analyse enregistrée dans l\'historique !');
-        setTimeout(() => setToast(null), 3000);
       } else {
-        setError('Aucune session agent trouvée pour cette machine. Assurez-vous d\'avoir exécuté l\'agent.');
+        setError('Aucune session agent trouvée pour cette machine. Assurez-vous d\'avoir exécuté l\'agent et attendu qu\'il se termine.');
         setLoading(false);
       }
+      
     } catch (error) {
       console.error('Erreur lors de la vérification de session:', error);
-      setError('Aucune session agent trouvée. Assurez-vous d\'avoir exécuté l\'agent.');
+      setError(`Erreur de connexion: ${error instanceof Error ? error.message : 'Erreur inconnue'}`);
       setLoading(false);
     }
   };
@@ -261,7 +321,6 @@ export default function Diagnostic() {
     setRecoDisplay('');
     setRecoTerminee(false);
     
-    // Séparer le texte en caractères pour l'effet machine à écrire
     const chars = text.split('');
     let current = '';
     let i = 0;
@@ -275,15 +334,8 @@ export default function Diagnostic() {
         clearInterval(interval);
         setRecoTerminee(true);
       }
-    }, 30); // Vitesse de frappe plus rapide
+    }, 30);
   };
-
-  // Centralisation de la base URL API - Utiliser l'URL relative
-  // Utilise la variable d'environnement pour l'URL de l'API backend
-  const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || '';
-
-  const [sessionId, setSessionId] = useState<string | null>(null);
-  const [showAgentOption, setShowAgentOption] = useState(false);
 
   const analyser = async () => {
     setAnalyseLancee(true);
@@ -296,10 +348,28 @@ export default function Diagnostic() {
     setSuggestions([]);
     setSessionId(null);
     
-    // Toujours proposer l'agent pour une analyse complète
+    // Test de connectivité d'abord
+    console.log('🧪 Test de l\'API backend...');
+    const isConnected = await testAPIConnection();
+    
+    if (!isConnected) {
+      setError('Impossible de se connecter au serveur backend. Vérifiez que l\'URL est correcte et que le serveur est démarré.');
+      setLoading(false);
+      return;
+    }
+    
     setShowAgentOption(true);
     setLoading(false);
   };
+
+  // Afficher l'URL de l'API pour debug
+  useEffect(() => {
+    console.log('🔧 Configuration API:', {
+      API_BASE_URL,
+      NODE_ENV: process.env.NODE_ENV,
+      NEXT_PUBLIC_API_BASE_URL: process.env.NEXT_PUBLIC_API_BASE_URL
+    });
+  }, [API_BASE_URL]);
 
   return (
     <div className="flex flex-col items-center justify-center min-h-[80vh] w-full px-4 fade-in">
@@ -311,8 +381,19 @@ export default function Diagnostic() {
       )}
       
       <div className="flex flex-col items-center gap-6 mt-20 mb-10 slide-up w-full max-w-5xl">
-        <h1 className="text-4xl md:text-6xl font-extrabold leading-tight bg-gradient-to-r from-[#06b6d4] via-[#a78bfa] to-[#06b6d4] bg-clip-text text-transparent text-center drop-shadow-lg fade-in">Diagnostic PC</h1>
-        <p className="text-lg md:text-xl text-white text-center max-w-2xl fade-in" style={{animationDelay:'0.2s'}}>Découvrez votre configuration actuelle et recevez des recommandations d'amélioration personnalisées.</p>
+        <h1 className="text-4xl md:text-6xl font-extrabold leading-tight bg-gradient-to-r from-[#06b6d4] via-[#a78bfa] to-[#06b6d4] bg-clip-text text-transparent text-center drop-shadow-lg fade-in">
+          Diagnostic PC
+        </h1>
+        <p className="text-lg md:text-xl text-white text-center max-w-2xl fade-in" style={{animationDelay:'0.2s'}}>
+          Découvrez votre configuration actuelle et recevez des recommandations d'amélioration personnalisées.
+        </p>
+        
+        {/* Affichage debug de l'URL API */}
+        {process.env.NODE_ENV === 'development' && (
+          <div className="text-xs text-gray-400 text-center">
+            API: {API_BASE_URL || 'Non configuré'}
+          </div>
+        )}
         
         <button
           className="btn-modern text-lg px-10 py-4 mt-4 slide-up"
@@ -330,7 +411,17 @@ export default function Diagnostic() {
           )}
         </button>
         
-        {error && <div className="text-red-400 font-semibold text-center slide-up">{error}</div>}
+        {error && (
+          <div className="bg-red-500/10 border border-red-500/20 rounded-lg p-4 max-w-2xl">
+            <div className="text-red-400 font-semibold text-center mb-2">Erreur de connexion</div>
+            <div className="text-red-300 text-sm text-center">{error}</div>
+            {API_BASE_URL && (
+              <div className="text-gray-400 text-xs text-center mt-2">
+                Serveur cible: {API_BASE_URL}
+              </div>
+            )}
+          </div>
+        )}
 
         {showAgentOption && (
           <div className="bg-white/5 backdrop-blur-sm rounded-xl p-6 border border-white/10 slide-up">
@@ -343,9 +434,8 @@ export default function Diagnostic() {
             <div className="flex flex-col md:flex-row gap-4 justify-center items-center">
               <button
                 onClick={() => {
-                  // Télécharger l'agent
                   const link = document.createElement('a');
-                  link.href = '/api/download-agent';
+                  link.href = `${API_BASE_URL}/api/download-agent`;
                   link.download = 'pcanalys-agent.exe';
                   link.click();
                 }}
@@ -360,8 +450,8 @@ export default function Diagnostic() {
               <ol className="text-white/80 text-sm space-y-1">
                 <li>1. Téléchargez et exécutez l'agent</li>
                 <li>2. L'agent analysera votre système</li>
-                <li>3. Retournez sur cette page et cliquez sur "Continuer"</li>
-                <li>4. Vos données seront automatiquement récupérées</li>
+                <li>3. Attendez que l'agent indique "Analyse terminée avec succès !"</li>
+                <li>4. Retournez sur cette page et cliquez sur "Continuer"</li>
               </ol>
             </div>
             
@@ -369,8 +459,16 @@ export default function Diagnostic() {
               <button
                 onClick={checkAgentSession}
                 className="btn-modern text-sm px-6 py-2"
+                disabled={loading}
               >
-                🔄 Continuer avec l'Agent
+                {loading ? (
+                  <div className="flex items-center gap-2">
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                    <span>Vérification...</span>
+                  </div>
+                ) : (
+                  '🔄 Continuer avec l\'Agent'
+                )}
               </button>
             </div>
           </div>
@@ -461,52 +559,4 @@ export default function Diagnostic() {
                     <div className="flex items-center gap-3 text-white">
                       <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-cyan-400"></div>
                       <span className="text-lg">Analyse IA en cours...</span>
-                    </div>
-                    <div className="w-full animate-pulse flex flex-col gap-3">
-                      <div className="h-4 bg-white/10 rounded w-3/4" />
-                      <div className="h-4 bg-white/10 rounded w-1/2" />
-                      <div className="h-4 bg-white/10 rounded w-5/6" />
-                    </div>
-                  </div>
-                ) : reco ? (
-                  <div className="prose prose-lg max-w-none text-white">
-                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                      {recoDisplay || reco}
-                    </ReactMarkdown>
-                    {!recoTerminee && <span className="inline-block w-2 h-6 bg-cyan-400 ml-1 animate-pulse"></span>}
-                  </div>
-                ) : null}
-              </div>
-            </div>
-
-            {/* Message ou Suggestions */}
-            {message && (
-              <div className="slide-up">
-                <div className="bg-green-50 border border-green-200 rounded-lg p-6 mb-6">
-                  <div className="flex items-center gap-3">
-                    <CheckCircle className="w-6 h-6 text-green-600" />
-                    <div>
-                      <h3 className="text-lg font-semibold text-green-800">Configuration Optimale</h3>
-                      <p className="text-green-700 mt-1">{message}</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-            
-            {suggestions.length > 0 && (
-              <div className="slide-up">
-                <h2 className="text-2xl font-bold mb-6 text-white text-center">Composants Recommandés</h2>
-                <div className="flex flex-col gap-4">
-                  {suggestions.map((s, index) => (
-                    <SuggestionCard key={index} s={s} />
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-} 
+                    </div
