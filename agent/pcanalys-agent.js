@@ -12,7 +12,7 @@ require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
 
 
 // Détection de l'URL serveur (ordre de priorité : CLI > env > .env > défaut)
-let SERVER_URL = process.env.SERVER_URL || 'http://localhost:4000';
+let SERVER_URL = process.env.SERVER_URL || 'https://ton-backend.up.railway.app';
 // Gestion des arguments de ligne de commande
 const serverIndex = process.argv.indexOf('--server');
 if (serverIndex !== -1 && process.argv[serverIndex + 1]) {
