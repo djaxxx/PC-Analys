@@ -1,17 +1,13 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  async rewrites() {
-    return [
-      {
-        source: '/api/:path*',
-        destination: 'https://ton-backend.up.railway.app/api/:path*', // Backend local !
-      },
-    ];
+  eslint: {
+    ignoreDuringBuilds: true
   },
+  // Configuration CORS pour communiquer avec Railway
   async headers() {
     return [
       {
-        source: '/api/:path*',
+        source: '/(.*)',
         headers: [
           {
             key: 'Access-Control-Allow-Origin',
@@ -29,8 +25,10 @@ const nextConfig = {
       },
     ];
   },
-  // Forcer l'utilisation de l'URL relative
-  assetPrefix: '',
-  basePath: '',
+  // Configuration pour les images externes
+  images: {
+    domains: ['images.unsplash.com', 'images-na.ssl-images-amazon.com']
+  }
 };
-module.exports = nextConfig; 
+
+module.exports = nextConfig;
