@@ -1,24 +1,23 @@
 #!/usr/bin/env node
 
+
 const si = require('systeminformation');
 const https = require('https');
 const http = require('http');
 const url = require('url');
 const fs = require('fs');
 const path = require('path');
-
 // Support .env pour la config
 require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
 
-// ===== URL BACKEND CORRIGÉE =====
-let SERVER_URL = process.env.SERVER_URL || 'https://pc-analys-production.up.railway.app';
 
+// Détection de l'URL serveur (ordre de priorité : CLI > env > .env > défaut)
+let SERVER_URL = process.env.SERVER_URL || 'http://localhost:4000';
 // Gestion des arguments de ligne de commande
 const serverIndex = process.argv.indexOf('--server');
 if (serverIndex !== -1 && process.argv[serverIndex + 1]) {
   SERVER_URL = process.argv[serverIndex + 1];
 }
-
 const API_ENDPOINT = `${SERVER_URL}/api/client-scan`;
 
 // Couleurs pour la console
@@ -35,7 +34,6 @@ const colors = {
 function log(message, color = 'reset') {
   console.log(`${colors[color]}${message}${colors.reset}`);
 }
-
 // Fonction pour générer un identifiant unique de machine basé sur les caractéristiques système
 function generateMachineId(clientData) {
   const cpu = clientData.cpu?.modèle || 'unknown';
@@ -111,14 +109,11 @@ async function analyzeSystem() {
 
 async function sendToServer(data) {
   log('📡 Envoi des données au serveur...', 'yellow');
-  log(`🎯 URL de destination: ${API_ENDPOINT}`, 'cyan');
-  
   return new Promise((resolve, reject) => {
     const parsedUrl = url.parse(API_ENDPOINT);
     const isHttps = parsedUrl.protocol === 'https:';
     const client = isHttps ? https : http;
     const postData = JSON.stringify(data);
-    
     const options = {
       hostname: parsedUrl.hostname,
       port: parsedUrl.port || (isHttps ? 443 : 80),
@@ -127,74 +122,52 @@ async function sendToServer(data) {
       headers: {
         'Content-Type': 'application/json',
         'User-Agent': 'PcAnalys-Agent/1.0',
-        'Content-Length': Buffer.byteLength(postData),
-        'Accept': 'application/json'
+        'Content-Length': Buffer.byteLength(postData)
       },
-      timeout: 15000, // Augmenté à 15s
-      rejectUnauthorized: true // Activé pour la sécurité
+      timeout: 10000,
+      // Permet de se connecter à un serveur HTTPS avec un certificat autosigné (optionnel, à activer si besoin)
+      rejectUnauthorized: false
     };
-
-    console.log('📤 Options de requête:', {
-      hostname: options.hostname,
-      port: options.port,
-      path: options.path,
-      method: options.method
-    });
-
     const req = client.request(options, (res) => {
       let responseData = '';
-      
-      console.log('📥 Status:', res.statusCode);
-      console.log('📥 Headers:', res.headers);
-      
       res.on('data', (chunk) => {
         responseData += chunk;
       });
-      
       res.on('end', () => {
-        console.log('📥 Response body:', responseData);
-        
         if (res.statusCode === 200) {
           try {
             const response = JSON.parse(responseData);
             log('✅ Données envoyées avec succès !', 'green');
-            log(`🔗 Session ID: ${response.sessionId || 'N/A'}`, 'cyan');
+            log(`🔗 Session ID: ${response.sessionId}`, 'cyan');
             resolve(response);
           } catch (error) {
-            log('❌ Réponse invalide du serveur', 'red');
-            log('📄 Réponse reçue: ' + responseData, 'yellow');
             reject(new Error('Réponse invalide du serveur'));
           }
         } else {
           log(`❌ Erreur serveur: ${res.statusCode}`, 'red');
-          log('📄 Message d\'erreur: ' + responseData, 'yellow');
-          reject(new Error(`Erreur serveur: ${res.statusCode} - ${responseData}`));
+          if (isHttps && res.statusCode === 495) {
+            log('⚠️  Le certificat SSL du serveur n\'est pas valide. Utilisez un certificat valide ou ajoutez NODE_TLS_REJECT_UNAUTHORIZED=0 pour tester.', 'yellow');
+          }
+          reject(new Error(`Erreur serveur: ${res.statusCode}`));
         }
       });
     });
-    
     req.on('error', (error) => {
-      log(`❌ Erreur de connexion: ${error.message}`, 'red');
-      log(`🔍 Code d'erreur: ${error.code}`, 'yellow');
-      
       if (error.code === 'ECONNREFUSED') {
-        log('💡 Le serveur semble être inaccessible', 'yellow');
-        log('🔍 Vérifiez que l\'URL est correcte:', 'yellow');
-        log(`   ${SERVER_URL}`, 'cyan');
-      } else if (error.code === 'ENOTFOUND') {
-        log('💡 Nom de domaine introuvable', 'yellow');
-        log('🔍 Vérifiez votre connexion internet', 'yellow');
+        log('❌ Impossible de se connecter au serveur', 'red');
+        log('💡 Assurez-vous que le serveur PcAnalys est démarré', 'yellow');
+      } else if (isHttps && error.code === 'DEPTH_ZERO_SELF_SIGNED_CERT') {
+        log('❌ Le certificat SSL du serveur n\'est pas reconnu.', 'red');
+        log('💡 Utilisez un certificat valide ou lancez l\'agent avec NODE_TLS_REJECT_UNAUTHORIZED=0 pour tester.', 'yellow');
+      } else {
+        log(`❌ Erreur d'envoi: ${error.message}`, 'red');
       }
-      
       reject(error);
     });
-    
     req.on('timeout', () => {
-      log('⏱️  Timeout de connexion (15s)', 'red');
       req.destroy();
       reject(new Error('Timeout de connexion'));
     });
-    
     req.write(postData);
     req.end();
   });
@@ -203,17 +176,13 @@ async function sendToServer(data) {
 async function main() {
   log('🚀 PcAnalys Agent v1.0', 'bright');
   log('================================', 'cyan');
-  log(`🎯 Serveur cible: ${SERVER_URL}`, 'blue');
-  log('', 'reset');
   
   try {
     // Analyser le système
     const systemData = await analyzeSystem();
-    
     // Générer et logguer l'ID machine
     const machineId = generateMachineId(systemData);
-    log(`🔑 Machine ID: ${machineId}`, 'cyan');
-    log('', 'reset');
+    console.log('Agent machineId:', machineId);
     
     // Envoyer au serveur
     const result = await sendToServer(systemData);
@@ -221,30 +190,16 @@ async function main() {
     log('', 'reset');
     log('🎉 Analyse terminée avec succès !', 'green');
     log('📋 Vous pouvez maintenant retourner sur le site web', 'cyan');
-    log('🔗 L\'analyse sera automatiquement détectée', 'cyan');
-    log('', 'reset');
-    
-    // Attendre 3 secondes avant de fermer
-    log('⏳ Fermeture dans 3 secondes...', 'yellow');
-    setTimeout(() => {
-      process.exit(0);
-    }, 3000);
+    log(`🔗 Ouvrez: http://192.168.1.4:3000`, 'cyan');
     
   } catch (error) {
     log('', 'reset');
-    log('❌ Échec de l\'analyse', 'red');
-    log('', 'reset');
-    log('💡 Solutions possibles:', 'yellow');
-    log('1. Vérifiez votre connexion internet', 'yellow');
-    log('2. Vérifiez que le serveur est accessible:', 'yellow');
-    log(`   ${SERVER_URL}`, 'cyan');
-    log('3. Contactez le support si le problème persiste', 'yellow');
-    log('', 'reset');
+    log('💡 Pour utiliser l\'agent:', 'yellow');
+    log('1. Assurez-vous que le serveur PcAnalys est démarré', 'yellow');
+    log('2. Relancez cet agent', 'yellow');
+    log('3. Ou utilisez la détection côté navigateur', 'yellow');
     
-    // Attendre 5 secondes avant de fermer en cas d'erreur
-    setTimeout(() => {
-      process.exit(1);
-    }, 5000);
+    process.exit(1);
   }
 }
 
@@ -257,10 +212,6 @@ if (process.argv.includes('--help') || process.argv.includes('-h')) {
   log('Options:', 'yellow');
   log('  --help, -h     Afficher cette aide', 'reset');
   log('  --server URL   Spécifier l\'URL du serveur', 'reset');
-  log('', 'reset');
-  log('Exemples:', 'yellow');
-  log('  node pcanalys-agent.js', 'cyan');
-  log('  node pcanalys-agent.js --server https://pc-analys-production.up.railway.app', 'cyan');
   log('', 'reset');
   process.exit(0);
 }
